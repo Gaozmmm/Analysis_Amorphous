@@ -350,20 +350,70 @@ class RadialAnalysis(object):
 
 
 class VoronoiAnalysis(object):
-    def __init__(self, structure: "POSCAR", r_cutoff=5, supercell=np.eye(3, 3)):
-        self.supercell = supercell
-        print(supercell)
-        if len(self.supercell) != 3:
-            raise ValueError("You have to put in a 3x3 numpy array")
-        self._frame = make_supercell(read(structure), self.supercell)
-        self.coor_f = self._frame.positions
+        def __init__(self):
+        self.vor_ensemble = None
 
-    def set_voronoi(self):
-        points = self.coor_f
-        vor = Voronoi(points)
-        print(vor.points)
-        print(vor.ridge_dict)
-        from scipy.spatial import voronoi_plot_2d
+    @staticmethod
+    def voronoi_analysis(filename: "POSCAR,cif,vasp", n=0, cutoff=5.0, qhull_options="Qbb Qc Qz"):
+        structure = mg.Structure.from_file(filename)
+        center = structure[n]
+        neighbors = structure.get_sites_in_sphere(center.coords, cutoff)
+        neighbors = [i[0] for i in sorted(neighbors, key=lambda s: s[1])]
+        qvoronoi_input = np.array([s.coords for s in neighbors])
+        voro = Voronoi(qvoronoi_input, qhull_options=qhull_options)
+        vor_index = np.array([0, 0, 0, 0])
+
+        for key in voro.ridge_dict:
+            if 0 in key:
+                "This means if the center atom is in key"
+                if -1 in key:
+                    "This means if an infinity point is in key"
+                    print("Cutoff too short. Exiting.")
+                    return None
+                else:
+                    try:
+                        vor_index[len(voro.ridge_dict[key]) - 3] += 1
+                    except IndexError:
+                        # If a facet has more than 7 edges, it's skipped here
+                        pass
+        return vor_index
+
+    def from_structures(self, structures, cutoff=4.0, step_freq=10, qhull_options="Qbb Qc Qz"):
+        print("This might take a while...")
+        voro_dict = {}
+        step = 0
+        # for structure in structures:
+        #     step += 1
+        #     if step % step_freq != 0:
+        #         continue
+
+        v = []
+        for n in range(len(structures)):
+            v.append(str(self.voronoi_analysis(structures, n=n, cutoff=cutoff,
+                                               qhull_options=qhull_options).view()))
+        for voro in v:
+            if voro in voro_dict:
+                voro_dict[voro] += 1
+            else:
+                voro_dict[voro] = 1
+        self.vor_ensemble = sorted(voro_dict.items(), key=lambda x: (x[1], x[0]), reverse=True)[:15]
+        return self.vor_ensemble
+
+    @property
+    def plot_vor_analysis(self):
+        t = list(zip(*self.vor_ensemble))
+        labels = t[0]
+        val = list(t[1])
+        tot = np.sum(val)
+        val = [float(j) / tot for j in val]
+        pos = np.arange(len(val)) + .5  # the bar centers on the y axis
+        plt.figure(figsize=(4, 4))
+        plt.barh(pos, val, align='center', color='navy', alpha=0.5)
+        plt.yticks(pos, labels)
+        plt.xlabel('Frequency')
+        plt.title('Voronoi Spectra')
+        plt.grid(axis='x')
+        return plt
 
     def voronoi_volumes(points):
         v = Voronoi(points)
